@@ -39,7 +39,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
 
   // Never cache or intercept auth / API traffic — always hit the network live.
-  if (/googleapis\.com|accounts\.google\.com|discord\.com|api\.notion\.com/.test(url.host)) return;
+  if (/googleapis\.com|accounts\.google\.com/.test(url.host)) return;
 
   // Cache-first for the app shell & CDN libs, with network fallback that
   // populates the cache. Same-origin + jsdelivr only.
