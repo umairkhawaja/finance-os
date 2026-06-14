@@ -1,0 +1,41 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Finance OS logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c74ff"/>
+      <stop offset="0.55" stop-color="#6c63ff"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="area" x1="0" y1="170" x2="0" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10b981" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#10b981" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="line" x1="96" y1="370" x2="416" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#6ee7b7"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- App-icon squircle background -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+
+  <!-- Area under the rising line -->
+  <path d="M104 372 L208 312 L300 344 L408 176 L408 400 L104 400 Z" fill="url(#area)"/>
+
+  <!-- Rising chart line -->
+  <path d="M104 372 L208 312 L300 344 L408 176" stroke="url(#line)" stroke-width="22"
+        stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)"/>
+
+  <!-- Chart nodes -->
+  <circle cx="208" cy="312" r="15" fill="#ffffff"/>
+  <circle cx="300" cy="344" r="15" fill="#ffffff"/>
+  <circle cx="408" cy="176" r="20" fill="#34d399" stroke="#ffffff" stroke-width="7"/>
+
+  <!-- Coin anchor with euro mark -->
+  <circle cx="120" cy="372" r="58" fill="#10131c" fill-opacity="0.18"/>
+  <circle cx="120" cy="372" r="58" fill="#ffffff"/>
+  <text x="120" y="372" font-family="Georgia, 'Times New Roman', serif" font-size="78" font-weight="700"
+        fill="#4f46e5" text-anchor="middle" dominant-baseline="central">&#8364;</text>
+</svg>
