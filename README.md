@@ -55,6 +55,7 @@ Because the site is just code with zero embedded data, **public is the right and
 
 1. **Create the repo.** On GitHub, create a public repository named **`finance-os`** under your account (`umairkhawaja`).
 2. **Upload these files.** Either drag the whole folder into GitHub's web uploader, or:
+
    ```bash
    cd finance-os-pages
    git init
@@ -64,6 +65,7 @@ Because the site is just code with zero embedded data, **public is the right and
    git remote add origin https://github.com/umairkhawaja/finance-os.git
    git push -u origin main
    ```
+
 3. **Turn on Pages.** Repo → **Settings → Pages** → *Build and deployment* → **Deploy from a branch** → Branch **`main`**, folder **`/ (root)`** → **Save**.
 4. Wait ~1 minute. Your app is live at:
 
@@ -86,16 +88,19 @@ Drive sync uses the OAuth **client ID** already wired into the app:
 For Google to accept sign-in, you must register your site's URL on that client. In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), open the OAuth 2.0 Client (the one above) and add:
 
 **Authorized JavaScript origins**
+
 ```
 https://umairkhawaja.github.io
 ```
 
 **Authorized redirect URIs** (must match *exactly*, including the trailing slash)
+
 ```
 https://umairkhawaja.github.io/finance-os/
 ```
 
 For local testing also add, as needed:
+
 ```
 http://localhost:8000/        (origin: http://localhost:8000)
 ```
@@ -105,6 +110,7 @@ Then in the app: **Settings → Cloud Sync → Connect Google Drive**.
 > **Why no popup?** Sign-in is a **full-page redirect** to Google and back — not a popup window. This is deliberate: popups are blocked or broken inside the iOS standalone (home-screen) web app and by some macOS browser settings. The redirect flow works reliably on macOS Safari/Chrome **and** the iPhone PWA. The access token is short-lived (~1 hour), kept only in your browser, and stripped from the URL the instant it returns.
 
 ### OAuth consent screen note
+
 If the consent screen shows "unverified app", that's expected for a personal OAuth client. Add your own Google account as a **Test user** (OAuth consent screen → Test users) and you can use it indefinitely. You're only ever granting access to **this app's own hidden Drive folder**, nothing else.
 
 ---
