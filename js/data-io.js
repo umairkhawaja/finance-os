@@ -25,8 +25,16 @@
       // Safety net: auto-download a full snapshot before wiping, giving an undo path
       // (re-import the file) for an otherwise irreversible action.
       try { if (S.transactions.length || S.portfolioEntries.length || S.balanceHistory.length) exportSnapshot(); } catch (e) { }
-      await dbClear('transactions'); await dbClear('portfolioEntries'); await dbClear('balanceHistory');
+      await dbClear('transactions'); await dbClear('portfolioEntries'); await dbClear('balanceHistory'); await dbClear('config');
       S.transactions = []; S.portfolioEntries = []; S.balanceHistory = []; S.loggedMonths = new Set();
+      // Settings (budgets, rules, plan, balances) live in the config store too — wipe
+      // them back to defaults so a "reset all" fully returns the app to a clean slate.
+      S.config = {
+        currentSparkasseBalance: null, sparkasseTarget: 10000, monthlyIncome: 3000, cycleStartDay: 1,
+        budgets: { ...DEFAULT_BUDGETS }, customCategories: [], rules: DEFAULT_RULES.map(r => ({ ...r })),
+        plan: JSON.parse(JSON.stringify(DEFAULT_PLAN))
+      };
+      loadConfigUI(); buildBudgetFields();
       rebuildSnapshots(); rebuildAll(); showToast('🗑️ All data cleared');
     }
     async function renderStorageInfo() {

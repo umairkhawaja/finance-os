@@ -32,7 +32,7 @@
 
     function loadConfigUI() {
       const c = S.config;
-      if (c.currentSparkasseBalance != null) document.getElementById('cfg-sparkasse').value = c.currentSparkasseBalance;
+      document.getElementById('cfg-sparkasse').value = c.currentSparkasseBalance != null ? c.currentSparkasseBalance : '';
       document.getElementById('cfg-target').value = c.sparkasseTarget || 10000;
       document.getElementById('cfg-income').value = c.monthlyIncome || 2800;
       document.getElementById('cfg-cycleday').value = c.cycleStartDay || 1;
