@@ -5,6 +5,7 @@
       S.transactions = await dbGetAll('transactions');
       S.portfolioEntries = await dbGetAll('portfolioEntries');
       S.balanceHistory = await dbGetAll('balanceHistory');
+      await migrateTxSigns();
       S.transactions.sort((a, b) => b.date.localeCompare(a.date));
       S.portfolioEntries.sort((a, b) => a.date.localeCompare(b.date));
       S.balanceHistory.sort((a, b) => a.date.localeCompare(b.date));
@@ -18,6 +19,29 @@
         S.config.plan = (cfg.plan && Array.isArray(cfg.plan.phases) && cfg.plan.phases.length)
           ? cfg.plan : JSON.parse(JSON.stringify(DEFAULT_PLAN));
       }
+    }
+
+    // One-time repair for transactions stored before the sign fix. The old parser
+    // flipped any DEBIT carrying an explicit minus into a positive amount, so
+    // expenses were counted as income and "spent this month" collapsed to ~€0.
+    // That bug only ever corrupted non-income rows (income rows were always signed
+    // correctly), so forcing every non-income-type row negative recovers the
+    // original data exactly while leaving income rows — including legit clawbacks —
+    // untouched. Idempotent: re-running changes nothing once data is clean.
+    async function migrateTxSigns() {
+      if (S.config && S.config.txSignFixV1) return;
+      let fixed = 0;
+      for (const t of S.transactions) {
+        const incomeType = INCOME_TYPES.test(t.type || '');
+        if (!incomeType && t.amount > 0) {
+          t.amount = -Math.abs(t.amount);
+          await dbPut('transactions', t);
+          fixed++;
+        }
+      }
+      S.config.txSignFixV1 = true;
+      await dbSetConfig('main', S.config);
+      if (fixed) console.log(`[migrate] Corrected sign on ${fixed} expense rows mis-stored as income.`);
     }
 
     async function saveConfig() {
