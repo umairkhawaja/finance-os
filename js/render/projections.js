@@ -24,11 +24,14 @@
       return { start, end, daysTotal, daysElapsed, daysRemaining };
     }
 
-    // Forecasts the end-of-cycle Sparkasse balance two ways:
-    //  1) "budget" — assumes the rest of the month follows the set budget
-    //  2) "avg"    — extrapolates from the last 3 completed months' average spend
-    // Both start from the current balance (which already reflects spend to date)
-    // and subtract only the *remaining* projected spend. Returns null if no balance.
+    // Forecasts the end-of-cycle Sparkasse balance two ways. Income is intentionally
+    // ignored — this projects how far *expenses* will draw the current balance down:
+    //  1) "trend"  — likely outcome: recent 3-month spend pace blended with this
+    //                cycle's actual pace so far (the further into the cycle, the more
+    //                weight the live pace gets).
+    //  2) "budget" — conservative ceiling: you spend every euro of remaining budget.
+    // Both start from the current balance (which already reflects spend to date) and
+    // subtract only the *remaining* projected spend. Returns null if no balance.
     function forecastMonthEnd() {
       const balance = S.config.currentSparkasseBalance;
       if (balance == null) return null;
@@ -36,27 +39,36 @@
       const startISO = cyc.start.toISOString().slice(0, 10);
       const endISO = cyc.end.toISOString().slice(0, 10);
       const inCycle = S.transactions.filter(t => t.date >= startISO && t.date < endISO);
+      // Expenses only — income (amount > 0) plays no part in the spend forecast.
       const spentSoFar = Math.abs(inCycle.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0));
-      const gotIncome = inCycle.some(t => t.amount > 0 && t.category === 'income');
-      const incomeRemaining = (!gotIncome && S.config.monthlyIncome > 0) ? S.config.monthlyIncome : 0;
 
+      // --- Budget scenario: spend the full remaining budget allowance this cycle ---
       const totalBudget = Object.values(S.config.budgets || {}).reduce((s, v) => s + (v || 0), 0);
       const plannedRemaining = Math.max(totalBudget - spentSoFar, 0);
-      const endBudget = balance + incomeRemaining - plannedRemaining;
+      const endBudget = balance - plannedRemaining;
 
-      // 3-month average from completed calendar months (exclude current month)
+      // --- Trend scenario: blend recent history with this cycle's live pace ---
+      // Average of the last 3 *completed* calendar months (the current, incomplete
+      // month is excluded so a half-finished month never deflates the average).
       const curMonth = new Date().toISOString().slice(0, 7);
       const completed = monthlySnapshots.filter(s => s.month < curMonth);
       const last3 = completed.slice(-3);
       const avgAvailable = last3.length > 0;
       const avg3 = avgAvailable ? last3.reduce((s, m) => s + m.totalSpending, 0) / last3.length : 0;
-      const dailyAvg = cyc.daysTotal > 0 ? avg3 / cyc.daysTotal : 0;
-      const projectedRemainingAvg = dailyAvg * cyc.daysRemaining;
-      const endAvg = balance + incomeRemaining - projectedRemainingAvg;
+
+      const histDaily = cyc.daysTotal > 0 ? avg3 / cyc.daysTotal : 0;          // historical €/day
+      const curDaily = cyc.daysElapsed > 0 ? spentSoFar / cyc.daysElapsed : 0; // this cycle's €/day
+      // Weight the live pace more as the cycle progresses; lean on history early on.
+      const w = Math.min(cyc.daysElapsed / cyc.daysTotal, 1);
+      const blendedDaily = avgAvailable ? (w * curDaily + (1 - w) * histDaily) : curDaily;
+      const projectedRemainingAvg = blendedDaily * cyc.daysRemaining;
+      const projectedTotalSpend = spentSoFar + projectedRemainingAvg;
+      const endAvg = balance - projectedRemainingAvg;
 
       return {
         balance, spentSoFar, totalBudget, plannedRemaining, endBudget,
-        avgAvailable, avg3, projectedRemainingAvg, endAvg, incomeRemaining,
+        avgAvailable, avg3, blendedDaily, projectedRemainingAvg, projectedTotalSpend, endAvg,
+        overBudget: projectedTotalSpend > totalBudget && totalBudget > 0,
         monthsUsed: last3.length, ...cyc
       };
     }
@@ -107,33 +119,34 @@
       if (!f) { el.innerHTML = '<div class="card" style="color:var(--muted);font-size:13px">Set your Sparkasse balance in Settings to see end-of-month forecasts.</div>'; return; }
       const sign = n => (n < 0 ? '−' : '') + fmtEur(n);
       const col = n => n < 0 ? 'var(--red)' : 'var(--green)';
-      const budgetCard = `
+      const trendCard = f.avgAvailable ? `
     <div class="card">
-      <div class="card-title">📐 Budget forecast (ideal)</div>
-      <div class="card-value" style="color:${col(f.endBudget)}">${sign(f.endBudget)}</div>
-      <div class="card-sub">If the rest of the month stays within budget</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7">
-        Spent so far: <strong style="color:var(--text)">${fmtEur(f.spentSoFar)}</strong> of ${fmtEur(f.totalBudget)} budget<br>
-        Budget left to spend: ${fmtEur(f.plannedRemaining)}${f.incomeRemaining ? `<br>Income still expected: +${fmtEur(f.incomeRemaining)}` : ''}
-      </div>
-    </div>`;
-      const avgCard = f.avgAvailable ? `
-    <div class="card">
-      <div class="card-title">📊 ${f.monthsUsed}-month avg forecast</div>
+      <div class="card-title">📊 Likely end balance</div>
       <div class="card-value" style="color:${col(f.endAvg)}">${sign(f.endAvg)}</div>
-      <div class="card-sub">Based on your recent spending pace</div>
+      <div class="card-sub">Your recent pace blended with this month so far</div>
       <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7">
-        Avg monthly spend: <strong style="color:var(--text)">${fmtEur(f.avg3)}</strong><br>
-        Projected spend left (${f.daysRemaining} day${f.daysRemaining === 1 ? '' : 's'}): ${fmtEur(f.projectedRemainingAvg)}${f.incomeRemaining ? `<br>Income still expected: +${fmtEur(f.incomeRemaining)}` : ''}
+        Spent so far: <strong style="color:var(--text)">${fmtEur(f.spentSoFar)}</strong> (avg ${fmtEur(f.avg3)}/mo)<br>
+        Projected spend left (${f.daysRemaining} day${f.daysRemaining === 1 ? '' : 's'}): ${fmtEur(f.projectedRemainingAvg)}<br>
+        Projected month total: <strong style="color:${f.overBudget ? 'var(--red)' : 'var(--green)'}">${fmtEur(f.projectedTotalSpend)}</strong> vs ${fmtEur(f.totalBudget)} budget
       </div>
     </div>` : `
     <div class="card">
-      <div class="card-title">📊 3-month avg forecast</div>
+      <div class="card-title">📊 Likely end balance</div>
       <div class="card-value" style="color:var(--muted)">—</div>
       <div class="card-sub">Need at least 1 completed month of data</div>
     </div>`;
+      const budgetCard = `
+    <div class="card">
+      <div class="card-title">📐 If you spend your full budget</div>
+      <div class="card-value" style="color:${col(f.endBudget)}">${sign(f.endBudget)}</div>
+      <div class="card-sub">Conservative floor — every remaining budgeted euro spent</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7">
+        Spent so far: <strong style="color:var(--text)">${fmtEur(f.spentSoFar)}</strong> of ${fmtEur(f.totalBudget)} budget<br>
+        Budget left to spend: ${fmtEur(f.plannedRemaining)}
+      </div>
+    </div>`;
       el.className = 'g2';
-      el.innerHTML = budgetCard + avgCard;
+      el.innerHTML = trendCard + budgetCard;
     }
 
     function renderProjections() {
