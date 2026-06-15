@@ -38,6 +38,6 @@
 
     function renderOvWealth() {
       const series = generateProjectionSeries(); destroyChart('chartOvWealth');
-      charts['chartOvWealth'] = new Chart(document.getElementById('chartOvWealth'), { type: 'line', data: { labels: series.labels, datasets: [{ label: 'Total Wealth', data: series.total, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,.08)', fill: true, tension: .4, pointRadius: 0 }, { label: 'Sparkasse', data: series.sparkasse, borderColor: '#10b981', tension: .4, pointRadius: 0 }, { label: 'Portfolio', data: series.portfolio, borderColor: '#3b82f6', tension: .4, pointRadius: 0 }] }, options: chartDefaults() });
+      charts['chartOvWealth'] = new Chart(document.getElementById('chartOvWealth'), { type: 'line', data: { labels: series.labels, datasets: [{ label: 'Total Wealth', data: series.fwdTotal, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,.08)', fill: true, tension: .4, pointRadius: 0, spanGaps: false }, { label: 'Sparkasse', data: series.fwdSparkasse, borderColor: '#10b981', tension: .4, pointRadius: 0, spanGaps: false }, { label: 'Portfolio', data: series.fwdPortfolio, borderColor: '#3b82f6', tension: .4, pointRadius: 0, spanGaps: false }] }, options: chartDefaults() });
     }
 

@@ -117,12 +117,23 @@
       const spAnchor = firstHist ? firstHist.balance
         : (S.config.currentSparkasseBalance != null ? S.config.currentSparkasseBalance : 5800);
       const target = S.config.sparkasseTarget || 10000;
-      const sig = JSON.stringify([firstHist ? firstHist.date : null, spAnchor, portAnchor, target, plan]);
+      const now = new Date();
+      const nowMonth = _monthLabel(now);
+
+      // Seed for the FORWARD-looking projection: the realistic end-of-current-month
+      // Sparkasse balance — the same figure the End-of-Month Forecast cards show — so
+      // the current month reconciles with them. Falls back to the current balance,
+      // then the plan anchor when no forecast is available.
+      const fc = forecastMonthEnd();
+      const fwdSeed = fc ? fc.endAvg
+        : (S.config.currentSparkasseBalance != null ? S.config.currentSparkasseBalance : spAnchor);
+
+      // The forward series depends on today and the forecast seed too, so fold both
+      // into the cache signature (alongside the past-anchored inputs).
+      const sig = JSON.stringify([firstHist ? firstHist.date : null, spAnchor, portAnchor, target, plan, nowMonth, parseFloat(fwdSeed.toFixed(2))]);
       if (_projCache.sig === sig) return _projCache.val;
 
       const labels = [], sparkasse = [], portfolio = [], total = [];
-      const now = new Date();
-      const nowMonth = _monthLabel(now);
 
       // Anchor the plan at a FIXED origin — the earliest tracked Sparkasse balance —
       // and roll it forward from there. Anchoring in the past lets the plan diverge
@@ -141,19 +152,51 @@
       let d = new Date(startDate);
       while (d <= endDate) {
         const label = _monthLabel(d);
-        labels.push(label);
-        sparkasse.push(parseFloat(spVal.toFixed(2)));
-        portfolio.push(parseFloat(portVal.toFixed(2)));
-        total.push(parseFloat((spVal + portVal).toFixed(2)));
-
+        // Apply this month's plan contribution/growth BEFORE recording the point so
+        // each value is the projected END-of-month balance. Previously the point was
+        // pushed first and the contribution applied after, so every figure — incl.
+        // the current month, the phase-end cards and the actual-vs-projected compare —
+        // showed the start-of-month value and was a full month behind.
         const ph = phaseFor(label);
         if (ph) {
           spVal = Math.min(spVal + (ph.sparkasseMonthly || 0), target);
           portVal = portVal * (1 + monthlyR) + (ph.invest || 0);
         }
+        labels.push(label);
+        sparkasse.push(parseFloat(spVal.toFixed(2)));
+        portfolio.push(parseFloat(portVal.toFixed(2)));
+        total.push(parseFloat((spVal + portVal).toFixed(2)));
         d.setMonth(d.getMonth() + 1);
       }
-      const val = { labels, sparkasse, portfolio, total, anchorMonth, anchorBalance: sparkasse[0], plan };
+
+      // --- Forward-looking projection ----------------------------------------
+      // Start from TODAY's reality (forecast seed for Sparkasse, current value for
+      // the portfolio) and roll the plan forward, so the realistic "where am I
+      // headed" view reconciles with the forecast. Months before today are null so
+      // the line starts at the current month. The past-anchored series above is left
+      // untouched for the Actual-vs-Projected comparison (dashed plan line, avpPanel,
+      // risk flag). If today is outside the plan horizon, mirror the past series.
+      const fwdSparkasse = [], fwdPortfolio = [], fwdTotal = [];
+      const todayIdx = labels.indexOf(nowMonth);
+      let fSp = fwdSeed, fPort = portAnchor;
+      for (let k = 0; k < labels.length; k++) {
+        if (todayIdx < 0) { fwdSparkasse.push(sparkasse[k]); fwdPortfolio.push(portfolio[k]); fwdTotal.push(total[k]); continue; }
+        if (k < todayIdx) { fwdSparkasse.push(null); fwdPortfolio.push(null); fwdTotal.push(null); continue; }
+        if (k > todayIdx) { // the current-month point IS the seed (end-of-month reality)
+          const ph = phaseFor(labels[k]);
+          if (ph) {
+            fSp = Math.min(fSp + (ph.sparkasseMonthly || 0), target);
+            fPort = fPort * (1 + monthlyR) + (ph.invest || 0);
+          }
+        }
+        fwdSparkasse.push(parseFloat(fSp.toFixed(2)));
+        fwdPortfolio.push(parseFloat(fPort.toFixed(2)));
+        fwdTotal.push(parseFloat((fSp + fPort).toFixed(2)));
+      }
+
+      // anchorBalance is the raw starting balance (start of the anchor month), not the
+      // first plotted point — that now already includes the anchor month's contribution.
+      const val = { labels, sparkasse, portfolio, total, fwdSparkasse, fwdPortfolio, fwdTotal, fwdMonth: nowMonth, anchorMonth, anchorBalance: spAnchor, plan };
       _projCache = { sig, val };
       return val;
     }
@@ -201,13 +244,16 @@
       const portDots = series.labels.map(label => { const e = S.portfolioEntries.find(p => p.date.slice(0, 7) === label); return e ? e.value : null; });
       const sparkDots = series.labels.map(label => { const h = S.balanceHistory.find(b => b.date === label); return h ? h.balance : null; });
 
+      // Forward-looking projection lines start from today's reality (fwd* series),
+      // so they line up with the End-of-Month Forecast; historical actual portfolio
+      // dots still provide the past context.
       destroyChart('chartProjection');
       charts['chartProjection'] = new Chart(document.getElementById('chartProjection'), {
         type: 'line', data: {
           labels: series.labels, datasets: [
-            { label: 'Total Wealth (proj)', data: series.total, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,.08)', fill: true, tension: .4, pointRadius: 0, borderWidth: 2 },
-            { label: 'Sparkasse (proj)', data: series.sparkasse, borderColor: '#10b981', tension: .4, pointRadius: 0 },
-            { label: 'Portfolio (proj)', data: series.portfolio, borderColor: '#3b82f6', tension: .4, pointRadius: 0 },
+            { label: 'Total Wealth (proj)', data: series.fwdTotal, borderColor: '#6c63ff', backgroundColor: 'rgba(108,99,255,.08)', fill: true, tension: .4, pointRadius: 0, borderWidth: 2, spanGaps: false },
+            { label: 'Sparkasse (proj)', data: series.fwdSparkasse, borderColor: '#10b981', tension: .4, pointRadius: 0, spanGaps: false },
+            { label: 'Portfolio (proj)', data: series.fwdPortfolio, borderColor: '#3b82f6', tension: .4, pointRadius: 0, spanGaps: false },
             { label: 'Portfolio (actual)', data: portDots, borderColor: '#f59e0b', pointRadius: 5, showLine: false, borderWidth: 0, pointStyle: 'circle' },
           ]
         }, options: chartDefaults()
@@ -232,7 +278,9 @@
       document.getElementById('projCards').innerHTML = phases.map((ph, i) => {
         const endLabel = i < phases.length - 1 ? prevMonth(phases[i + 1].start) : series.plan.end;
         const idx = valueAtOrBefore(endLabel);
-        const val = idx >= 0 ? series.total[idx] : 0;
+        // Prefer the forward-looking value (anchored to today's reality); fall back to
+        // the past-anchored value for phases that have already ended.
+        const val = idx >= 0 ? (series.fwdTotal[idx] != null ? series.fwdTotal[idx] : series.total[idx]) : 0;
         const moves = [ph.sparkasseMonthly ? `€${ph.sparkasseMonthly}/mo → Sparkasse` : '', ph.invest ? `€${ph.invest}/mo → invest` : ''].filter(Boolean).join(' · ') || 'Hold';
         return `<div class="card"><div class="card-title">${esc(ph.name || ('Phase ' + (i + 1)))} (end ${endLabel})</div><div class="card-value">${fmtEur(val)}</div><div class="card-sub">${esc(moves)}</div></div>`;
       }).join('');

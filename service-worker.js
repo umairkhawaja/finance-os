@@ -1,7 +1,7 @@
 /* Finance OS — service worker
    App-shell cache for offline use + installable PWA.
    Bump CACHE when you change cached files to force an update. */
-const CACHE = 'finance-os-v2';
+const CACHE = 'finance-os-v3';
 
 const ASSETS = [
   './',
