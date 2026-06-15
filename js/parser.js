@@ -93,7 +93,9 @@
       // 'transfer' so they don't inflate income / savings rate (snapshots skip them).
       if (/^Bargeldeinzahlung/i.test(type)) return 'transfer';
       if (INCOME_TYPES.test(type) || (amount > 0 && /gehalt|lohn|salary|zenseact|finanzamt|airhelp/.test(d))) return 'income';
-      if (/wertpapiere|scalable|trade republic|etf|fonds/.test(d)) return 'investment';
+      // `\betf\b` (not bare `etf`) so it doesn't match the embedded letters in words
+      // like "nETFlix", which otherwise mis-tagged Netflix as an investment.
+      if (/wertpapiere|scalable|trade republic|\betf\b|fonds/.test(d)) return 'investment';
       if (/miete|wohnung|hausverwalt|untermiete/.test(d)) return 'rent';
       if (Math.abs(amount) >= 790 && Math.abs(amount) <= 810 && /dauerauftrag/i.test(type)) return 'rent';
       if (/rewe|aldi|lidl|norma|edeka|penny|supermarkt istanbul|supermarkt istambul|ernst lebensmittel|hoeflinger|mueller|mcdonald|pizza hut|wolt|five guys|pommes|burger|momos|khan baba|yade kebab|oz urfa|shawarma|nguyen kitchen|espresso house|eurotrade|annes haus|tadastithi|landbaeckerei|gdc deutschland|caf am schloss|kiosk|alperen|esen supermarkt|bäckerei|backerei|lieferando|uber eats/.test(d)) return 'food';
@@ -184,17 +186,21 @@
 
         const merchant = extractMerchant(fullDesc, txType);
         const description = merchant || fullDesc.slice(0, 60) || txType;
-        // Sparkasse usually omits the minus sign (direction implied by the Soll/Haben
-        // column), so we default the sign from the transaction type. BUT when the PDF
-        // *does* carry an explicit minus, it signals the row goes against the type's
-        // normal direction — e.g. a refund on a Kartenzahlung, or a clawback on a
-        // Gutschrift — so we flip accordingly instead of discarding that information.
+        // Determine the signed amount. An explicit minus in the statement ALWAYS means
+        // money out (a debit), regardless of the transaction type — e.g. a clawback on
+        // a Gutschrift is still money leaving the account, so it stays negative. When no
+        // explicit sign is present (Sparkasse often omits it, leaving direction to the
+        // Soll/Haben column), we fall back to the type: income types are credits
+        // (positive), everything else is a debit (negative).
+        //   NOTE: a previous version flipped *debits carrying a minus* to positive on
+        //   the theory they were refunds. That was wrong — a debit's minus just
+        //   confirms it's a debit — and it made every signed expense show up as income,
+        //   zeroing out "spent this month". Refunds appear as credits (Haben column),
+        //   not as a minus on a debit row, so they're handled by the income-type path.
         const hadExplicitMinus = amount < 0;
         const base = Math.abs(amount);
         const incomeType = INCOME_TYPES.test(txType);
-        const signedAmount = incomeType
-          ? (hadExplicitMinus ? -base : base)
-          : (hadExplicitMinus ? base : -base);
+        const signedAmount = (incomeType && !hadExplicitMinus) ? base : -base;
         const category = autoCategory(fullDesc, txType, signedAmount);
         const id = `${date}-${Math.abs(signedAmount)}-${Math.random().toString(36).slice(2, 7)}`;
 
