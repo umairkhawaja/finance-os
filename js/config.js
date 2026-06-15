@@ -10,7 +10,14 @@
       S.balanceHistory.sort((a, b) => a.date.localeCompare(b.date));
       S.loggedMonths = new Set(S.transactions.map(t => t.date.slice(0, 7)));
       const cfg = await dbGetConfig('main');
-      if (cfg) { Object.assign(S.config, cfg); S.config.budgets = Object.assign({ ...DEFAULT_BUDGETS }, cfg.budgets || {}); S.config.customCategories = cfg.customCategories || []; S.config.rules = Array.isArray(cfg.rules) ? cfg.rules : DEFAULT_RULES.map(r => ({ ...r })); }
+      if (cfg) {
+        Object.assign(S.config, cfg);
+        S.config.budgets = Object.assign({ ...DEFAULT_BUDGETS }, cfg.budgets || {});
+        S.config.customCategories = cfg.customCategories || [];
+        S.config.rules = Array.isArray(cfg.rules) ? cfg.rules : DEFAULT_RULES.map(r => ({ ...r }));
+        S.config.plan = (cfg.plan && Array.isArray(cfg.plan.phases) && cfg.plan.phases.length)
+          ? cfg.plan : JSON.parse(JSON.stringify(DEFAULT_PLAN));
+      }
     }
 
     async function saveConfig() {
@@ -37,7 +44,60 @@
       document.getElementById('budgetFields').innerHTML = cats.map(c => `<div class="field"><label>${labels[c]}</label><input data-budget="${c}" type="number" value="${S.config.budgets[c] || 0}" oninput="saveConfig()"></div>`).join('');
       renderCustomCatList();
       renderRulesList();
+      renderPhasesList();
       refreshCategorySelects();
+    }
+
+    // ---- Projection plan UI ----
+    function ensurePlan() { if (!S.config.plan || !Array.isArray(S.config.plan.phases)) S.config.plan = JSON.parse(JSON.stringify(DEFAULT_PLAN)); return S.config.plan; }
+    function persistPlan() { return dbSetConfig('main', S.config); }
+    function renderPhasesList() {
+      const plan = ensurePlan();
+      const rEl = document.getElementById('cfg-return'); if (rEl && document.activeElement !== rEl) rEl.value = plan.annualReturnPct;
+      const eEl = document.getElementById('cfg-planend'); if (eEl && document.activeElement !== eEl) eEl.value = plan.end;
+      const el = document.getElementById('phasesList'); if (!el) return;
+      const phases = [...plan.phases].sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+      if (!phases.length) { el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px 0">No phases yet. Add one below.</div>'; return; }
+      el.innerHTML = phases.map((p, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.name || 'Phase')}</div>
+        <div style="font-size:11px;color:var(--muted)">from ${esc(p.start || '?')} · €${p.sparkasseMonthly || 0}/mo Sparkasse · €${p.invest || 0}/mo invest</div>
+      </div>
+      <button onclick="deletePhase(${i})" style="background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3);padding:4px 8px;border-radius:5px;cursor:pointer;font-size:11px;flex:0 0 auto">✕</button>
+    </div>`).join('');
+    }
+    async function savePlanMeta() {
+      const plan = ensurePlan();
+      const r = parseFloat(document.getElementById('cfg-return').value);
+      const e = document.getElementById('cfg-planend').value;
+      if (!isNaN(r)) plan.annualReturnPct = r;
+      if (e) plan.end = e;
+      await persistPlan();
+      if (activeTab === 'projections' || activeTab === 'overview') rebuildAll();
+    }
+    async function addPhase() {
+      const plan = ensurePlan();
+      const name = (document.getElementById('newPhaseName').value || '').trim() || ('Phase ' + (plan.phases.length + 1));
+      const start = document.getElementById('newPhaseStart').value;
+      if (!start) { showToast('⚠️ Pick a start month'); return; }
+      const sparkasseMonthly = parseFloat(document.getElementById('newPhaseSpark').value) || 0;
+      const invest = parseFloat(document.getElementById('newPhaseInvest').value) || 0;
+      plan.phases.push({ name, start, sparkasseMonthly, invest });
+      plan.phases.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+      document.getElementById('newPhaseName').value = '';
+      document.getElementById('newPhaseStart').value = '';
+      document.getElementById('newPhaseSpark').value = '';
+      document.getElementById('newPhaseInvest').value = '';
+      await persistPlan(); renderPhasesList(); rebuildAll();
+      showToast('✅ Phase added');
+    }
+    async function deletePhase(i) {
+      const plan = ensurePlan();
+      const sorted = [...plan.phases].sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+      const target = sorted[i]; if (!target) return;
+      plan.phases = plan.phases.filter(p => p !== target);
+      await persistPlan(); renderPhasesList(); rebuildAll();
     }
 
     // ---- Categorization rules UI ----
@@ -96,7 +156,7 @@
     }
 
     function allCategories() {
-      const BUILTIN = ['rent', 'food', 'transport', 'shopping', 'subscriptions', 'remittance', 'insurance', 'installments', 'health', 'income', 'investment', 'entertainment', 'other'];
+      const BUILTIN = ['rent', 'food', 'transport', 'shopping', 'subscriptions', 'remittance', 'insurance', 'installments', 'health', 'income', 'investment', 'entertainment', 'transfer', 'other'];
       return [...BUILTIN, ...(S.config.customCategories || []).filter(c => !BUILTIN.includes(c))];
     }
     function categoryOptions(selected) {
@@ -125,7 +185,7 @@
       const nameEl = document.getElementById('newCatName'), budgetEl = document.getElementById('newCatBudget');
       const name = (nameEl.value || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       if (!name) { showToast('⚠️ Enter a category name'); return; }
-      const BUILTIN = ['rent', 'food', 'transport', 'shopping', 'subscriptions', 'remittance', 'insurance', 'installments', 'health', 'income', 'investment', 'entertainment', 'other'];
+      const BUILTIN = ['rent', 'food', 'transport', 'shopping', 'subscriptions', 'remittance', 'insurance', 'installments', 'health', 'income', 'investment', 'entertainment', 'transfer', 'other'];
       if (BUILTIN.includes(name)) { showToast('⚠️ That is a built-in category'); return; }
       if (!S.config.customCategories) S.config.customCategories = [];
       if (S.config.customCategories.includes(name)) { showToast('⚠️ Category already exists'); return; }

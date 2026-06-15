@@ -31,7 +31,7 @@
     }
 
     function drawGauge(score) {
-      const cv = document.getElementById('healthGauge'), ctx = cv.getContext('2d'), cx = 50, cy = 50, r = 38;
+      const cv = document.getElementById('healthGauge'), { ctx } = hidpiCtx(cv), cx = 50, cy = 50, r = 38;
       ctx.clearRect(0, 0, 100, 100);
       ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI); ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 10; ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, Math.PI + (score / 100) * Math.PI); ctx.strokeStyle = score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444'; ctx.lineWidth = 10; ctx.stroke();

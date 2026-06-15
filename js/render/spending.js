@@ -13,7 +13,7 @@
     <div class="card"><div class="card-title">Total This Month</div><div class="card-value" style="color:${snap.totalSpending > totalBudget ? 'var(--red)' : 'var(--green)'}">${fmtEur(snap.totalSpending)}</div><div class="card-sub">Budget: ${fmtEur(totalBudget)}</div></div>
     <div class="card"><div class="card-title">Biggest Overspend</div><div class="card-value" style="color:var(--red)">${overSpend ? overSpend.cat : '—'}</div><div class="card-sub">${overSpend ? `+${fmtEur(overSpend.over)} over` : 'On track!'}</div></div>
     <div class="card"><div class="card-title">Income This Month</div><div class="card-value" style="color:var(--green)">${fmtEur(snap.totalIncome)}</div><div class="card-sub">${(snap.savingsRate * 100).toFixed(1)}% savings rate</div></div>
-    <div class="card"><div class="card-title">Avg Savings (3mo)</div><div class="card-value" style="color:${avgSav >= .3 ? 'var(--green)' : 'var(--yellow)'}">${(avgSav * 100).toFixed(1)}%</div><div class="card-sub">Target ≥30%</div></div>`;
+    <div class="card"><div class="card-title">Avg Savings (3mo)</div><div class="card-value" style="color:${avgSav >= .3 ? 'var(--green)' : avgSav < 0 ? 'var(--red)' : 'var(--yellow)'}">${(avgSav * 100).toFixed(1)}%</div><div class="card-sub">Target ≥30%</div></div>`;
       renderBudgetChart(snap); renderMoMChart(); renderSpendTable(snap);
     }
 

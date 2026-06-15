@@ -246,6 +246,7 @@
                   <th>Date</th>
                   <th>Total Value (€)</th>
                   <th>Change</th>
+                  <th>Added</th>
                   <th>Notes</th>
                   <th></th>
                 </tr>
@@ -422,6 +423,26 @@
               </div>
               <button class="btn btn-success btn-sm" style="margin-top:10px" onclick="reapplyAllCategories()">🔁 Apply rules to all transactions</button>
             </div>
+            <div class="settings-section">
+              <h3>📈 Projection Plan</h3>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Drives the Projections charts. Each phase starts at its month and runs until the next one begins.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <div class="field" style="flex:1;min-width:120px"><label>Blended annual return (%)</label><input id="cfg-return" type="number" step="0.1" oninput="savePlanMeta()"></div>
+                <div class="field" style="flex:1;min-width:120px"><label>Plan ends (YYYY-MM)</label><input id="cfg-planend" type="month" oninput="savePlanMeta()"></div>
+              </div>
+              <div id="phasesList"></div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-end">
+                <input id="newPhaseName" placeholder="Phase name"
+                  style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:7px;font-size:13px;flex:2;min-width:0">
+                <input id="newPhaseStart" type="month"
+                  style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:7px;font-size:13px;width:130px">
+                <input id="newPhaseSpark" type="number" placeholder="Spk €/mo"
+                  style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:7px;font-size:13px;width:84px">
+                <input id="newPhaseInvest" type="number" placeholder="Inv €/mo"
+                  style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:7px;font-size:13px;width:84px">
+                <button class="btn btn-primary btn-sm" onclick="addPhase()">+ Add Phase</button>
+              </div>
+            </div>
           </div>
           <div>
             <div class="settings-section">
@@ -520,6 +541,9 @@
       <div class="field"><label>Date</label><input type="date" id="port-date-input"></div>
       <div class="field"><label>Total Portfolio Value (€)</label><input type="number" id="port-value-input" step="0.01"
           placeholder="e.g. 12450.00"></div>
+      <div class="field"><label>New money added since last entry (€, optional)</label><input type="number" id="port-contribution-input" step="0.01"
+          placeholder="e.g. 1000 — leave blank if no deposit"></div>
+      <div style="font-size:11px;color:var(--muted);margin:-4px 0 4px">Recording deposits lets the app separate market gains from money you added.</div>
       <div class="field"><label>Notes (optional)</label><input type="text" id="port-notes-input"
           placeholder="e.g. Added €1000 to MSCI World ETF"></div>
       <div style="display:flex;gap:8px;margin-top:4px">

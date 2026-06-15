@@ -83,7 +83,15 @@
     function autoCategory(desc, type, amount) {
       const ruled = applyRules(desc, type, amount);
       if (ruled) return ruled;
-      const d = (desc + ' ' + type).toLowerCase();
+      // Keyword matching runs against the DESCRIPTION only. The transaction `type`
+      // (e.g. "Apple Pay", "Kartenzahlung") is a payment method, not a merchant —
+      // folding it into the haystack made every "Apple Pay" purchase match the
+      // generic "apple" → subscriptions rule. `type` is still consulted explicitly
+      // where it genuinely matters (income detection, Dauerauftrag rent).
+      const d = (desc || '').toLowerCase();
+      // Cash deposits move money *into* the account but are not earnings — tag them
+      // 'transfer' so they don't inflate income / savings rate (snapshots skip them).
+      if (/^Bargeldeinzahlung/i.test(type)) return 'transfer';
       if (INCOME_TYPES.test(type) || (amount > 0 && /gehalt|lohn|salary|zenseact|finanzamt|airhelp/.test(d))) return 'income';
       if (/wertpapiere|scalable|trade republic|etf|fonds/.test(d)) return 'investment';
       if (/miete|wohnung|hausverwalt|untermiete/.test(d)) return 'rent';
@@ -93,8 +101,8 @@
       if (/zalando|arket|breuninger|about you|mango|h&m|h\.m|adidas|temu|ditur|amevista|ikea|kaufland|flaconi|notino|dm drogerie|fielmann|amazon|zara|saturn|mediamarkt|rossmann|cash withdrawal|boogs home|vintagewerkstatt/.test(d)) return 'shopping';
       if (/wise\.com|wise transfer|transferwise|western union|moneygram|remitly|instarem|azimo|worldremit|pangea|ria money|remittance|pakistan|int.*transfer|international.*bank/.test(d)) return 'remittance';
       if (/popsure/.test(d)) return 'insurance';
-      if (/taxfix|disney|apple servi|apple services|telekom|minimax|mfi|munchner forum|munchen forum|sparkasse/.test(d)) return 'subscriptions';
-      if (/netflix|spotify|apple|google|adobe|dazn|youtube|chatgpt|notion|github/.test(d)) return 'subscriptions';
+      if (/taxfix|disney|apple servi|apple services|telekom|minimax|mfi|munchner forum|munchen forum/.test(d)) return 'subscriptions';
+      if (/netflix|spotify|apple\.com|itunes|adobe|dazn|youtube|google\*|chatgpt|openai|notion|github/.test(d)) return 'subscriptions';
       if (/urologie|klinikum|apotheke|loewen|hausarzt|body up|body.*motion|fit star|fitness|gym|sport/.test(d)) return 'health';
       if (/booking\.com|qatar airways|airbnb|ryanair|easyjet|lufthansa|flughafen/.test(d) && !/eurotrade/.test(d)) return 'transport'; // travel → transport
       if (/moonflash|kino|theater|museum|eventim|ticketmaster/.test(d)) return 'entertainment';
@@ -176,9 +184,17 @@
 
         const merchant = extractMerchant(fullDesc, txType);
         const description = merchant || fullDesc.slice(0, 60) || txType;
-        // Sparkasse PDFs omit minus signs (sign implied by Soll vs Haben column).
-        // We enforce sign from transaction type rather than the raw number.
-        const signedAmount = INCOME_TYPES.test(txType) ? Math.abs(amount) : -Math.abs(amount);
+        // Sparkasse usually omits the minus sign (direction implied by the Soll/Haben
+        // column), so we default the sign from the transaction type. BUT when the PDF
+        // *does* carry an explicit minus, it signals the row goes against the type's
+        // normal direction — e.g. a refund on a Kartenzahlung, or a clawback on a
+        // Gutschrift — so we flip accordingly instead of discarding that information.
+        const hadExplicitMinus = amount < 0;
+        const base = Math.abs(amount);
+        const incomeType = INCOME_TYPES.test(txType);
+        const signedAmount = incomeType
+          ? (hadExplicitMinus ? -base : base)
+          : (hadExplicitMinus ? base : -base);
         const category = autoCategory(fullDesc, txType, signedAmount);
         const id = `${date}-${Math.abs(signedAmount)}-${Math.random().toString(36).slice(2, 7)}`;
 

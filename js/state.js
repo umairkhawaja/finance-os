@@ -17,11 +17,27 @@
       { id: 'r-klarna', enabled: true, match: 'klarna', field: 'both', minAmount: null, maxAmount: null, category: 'shopping' },
       { id: 'r-subs', enabled: true, match: 'disney', field: 'both', minAmount: null, maxAmount: null, category: 'subscriptions' }
     ];
+    // Projection plan. The engine (generateProjectionSeries) is driven entirely by
+    // this — phases, monthly amounts, blended return and the horizon are all editable
+    // in Settings rather than hardcoded. Each phase begins at `start` (YYYY-MM) and
+    // runs until the next phase's start (or `end`). `sparkasseMonthly` is added to the
+    // Sparkasse each month (capped at sparkasseTarget); `invest` is added to the
+    // portfolio, which compounds at annualReturnPct.
+    const DEFAULT_PLAN = {
+      annualReturnPct: 7,
+      end: '2028-10',
+      phases: [
+        { name: 'Phase 1 — Safety Net', start: '2026-06', sparkasseMonthly: 1000, invest: 0 },
+        { name: 'Phase 2 — Invest €1k/mo', start: '2026-10', sparkasseMonthly: 0, invest: 1000 },
+        { name: 'Phase 3 — Scale €1.5k/mo', start: '2028-01', sparkasseMonthly: 0, invest: 1500 }
+      ]
+    };
     const S = {
       transactions: [], portfolioEntries: [], balanceHistory: [], loggedMonths: new Set(),
       config: {
         currentSparkasseBalance: null, sparkasseTarget: 10000, monthlyIncome: 3000, cycleStartDay: 1,
-        budgets: { ...DEFAULT_BUDGETS }, customCategories: [], rules: DEFAULT_RULES.map(r => ({ ...r }))
+        budgets: { ...DEFAULT_BUDGETS }, customCategories: [], rules: DEFAULT_RULES.map(r => ({ ...r })),
+        plan: JSON.parse(JSON.stringify(DEFAULT_PLAN))
       }
     };
     const charts = {};

@@ -10,18 +10,44 @@
     // ================================================================
     // END-OF-MONTH FORECAST
     // ================================================================
+    function cycleStartDay() { return Math.min(Math.max(parseInt(S.config.cycleStartDay) || 1, 1), 28); }
+    const _MS_DAY = 86400000;
+    const _isoDate = d => d.toISOString().slice(0, 10);
+
     // Returns the current spend cycle window [start, end) honoring cycleStartDay.
     function currentCycle() {
       const now = new Date();
-      const startDay = Math.min(Math.max(parseInt(S.config.cycleStartDay) || 1, 1), 28);
+      const startDay = cycleStartDay();
       let start = new Date(now.getFullYear(), now.getMonth(), startDay);
       if (now < start) start = new Date(now.getFullYear(), now.getMonth() - 1, startDay);
       const end = new Date(start.getFullYear(), start.getMonth() + 1, startDay); // exclusive
-      const MS = 86400000;
-      const daysTotal = Math.round((end - start) / MS);
-      const daysElapsed = Math.min(daysTotal, Math.max(1, Math.floor((now - start) / MS) + 1));
+      const daysTotal = Math.round((end - start) / _MS_DAY);
+      const daysElapsed = Math.min(daysTotal, Math.max(1, Math.floor((now - start) / _MS_DAY) + 1));
       const daysRemaining = Math.max(0, daysTotal - daysElapsed);
       return { start, end, daysTotal, daysElapsed, daysRemaining };
+    }
+
+    // Average daily spend across the last `n` COMPLETED cycles before `beforeStart`,
+    // measured on the same cycleStartDay windows as the current cycle (so the trend
+    // baseline and this cycle's live pace are apples-to-apples even when the cycle
+    // doesn't start on the 1st). Empty cycles (no transactions at all) are skipped so
+    // a gap in data never deflates the average. Returns { dailies:[], months }.
+    function completedCycleDailies(n, beforeStart) {
+      const startDay = cycleStartDay();
+      const dailies = [];
+      let end = beforeStart; // exclusive end of the cycle immediately before the current one
+      for (let i = 0; i < n + 6 && dailies.length < n; i++) { // look back a bit further to skip empties
+        const start = new Date(end.getFullYear(), end.getMonth() - 1, startDay);
+        const sISO = _isoDate(start), eISO = _isoDate(end);
+        const inWin = S.transactions.filter(t => t.date >= sISO && t.date < eISO);
+        if (inWin.length) {
+          const spend = Math.abs(inWin.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0));
+          const days = Math.max(1, Math.round((end - start) / _MS_DAY));
+          dailies.push(spend / days);
+        }
+        end = start;
+      }
+      return dailies;
     }
 
     // Forecasts the end-of-cycle Sparkasse balance two ways. Income is intentionally
@@ -48,15 +74,15 @@
       const endBudget = balance - plannedRemaining;
 
       // --- Trend scenario: blend recent history with this cycle's live pace ---
-      // Average of the last 3 *completed* calendar months (the current, incomplete
-      // month is excluded so a half-finished month never deflates the average).
-      const curMonth = new Date().toISOString().slice(0, 7);
-      const completed = monthlySnapshots.filter(s => s.month < curMonth);
-      const last3 = completed.slice(-3);
-      const avgAvailable = last3.length > 0;
-      const avg3 = avgAvailable ? last3.reduce((s, m) => s + m.totalSpending, 0) / last3.length : 0;
-
-      const histDaily = cyc.daysTotal > 0 ? avg3 / cyc.daysTotal : 0;          // historical €/day
+      // History is measured over the last 3 *completed cycles* using the same
+      // cycleStartDay windows as the live cycle, so the baseline and the current pace
+      // are computed on identical footing (previously history was calendar-month based
+      // while spentSoFar was cycle based — inconsistent whenever cycleStartDay ≠ 1).
+      const dailies = completedCycleDailies(3, cyc.start);
+      const avgAvailable = dailies.length > 0;
+      const histDaily = avgAvailable ? dailies.reduce((s, d) => s + d, 0) / dailies.length : 0; // historical €/day
+      const avg3 = histDaily * cyc.daysTotal; // implied average spend per cycle, for display
+      const last3 = dailies; // kept for monthsUsed below
       const curDaily = cyc.daysElapsed > 0 ? spentSoFar / cyc.daysElapsed : 0; // this cycle's €/day
       // Weight the live pace more as the cycle progresses; lean on history early on.
       const w = Math.min(cyc.daysElapsed / cyc.daysTotal, 1);
@@ -73,45 +99,65 @@
       };
     }
 
+    const _monthLabel = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    function activePlan() {
+      const p = (S.config && S.config.plan) || DEFAULT_PLAN;
+      const phases = (Array.isArray(p.phases) ? [...p.phases] : []).sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+      return { annualReturnPct: p.annualReturnPct != null ? p.annualReturnPct : 7, end: p.end || '2028-10', phases };
+    }
+
+    // Cache the (pure-ish) projection series. It only depends on the anchor balance,
+    // portfolio anchor, target and the plan, so we memoize on a signature of those to
+    // avoid recomputing it 3-4× on every render (overview, risk, projections charts).
+    let _projCache = { sig: null, val: null };
     function generateProjectionSeries() {
+      const plan = activePlan();
+      const firstHist = S.balanceHistory[0];
+      const portAnchor = latestPortfolioValue();
+      const spAnchor = firstHist ? firstHist.balance
+        : (S.config.currentSparkasseBalance != null ? S.config.currentSparkasseBalance : 5800);
+      const target = S.config.sparkasseTarget || 10000;
+      const sig = JSON.stringify([firstHist ? firstHist.date : null, spAnchor, portAnchor, target, plan]);
+      if (_projCache.sig === sig) return _projCache.val;
+
       const labels = [], sparkasse = [], portfolio = [], total = [];
       const now = new Date();
-      const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endDate = new Date(2028, 9, 1); // October 2028 — end of Phase 3
+      const nowMonth = _monthLabel(now);
 
-      // Root in actual data
-      let spVal = S.config.currentSparkasseBalance != null ? S.config.currentSparkasseBalance : 5800;
-      let portVal = latestPortfolioValue();
+      // Anchor the plan at a FIXED origin — the earliest tracked Sparkasse balance —
+      // and roll it forward from there. Anchoring in the past lets the plan diverge
+      // from reality, which is the whole point of the "actual vs projected" compare.
+      const anchorMonth = firstHist ? firstHist.date : nowMonth;
+      const [ay, am] = anchorMonth.split('-').map(Number);
+      const startDate = new Date(ay, am - 1, 1);
+      const [ey, em] = plan.end.split('-').map(Number);
+      const endDate = new Date(ey, em - 1, 1);
 
-      const TARGET = S.config.sparkasseTarget || 10000;
-      const MONTHLY_R = Math.pow(1.07, 1 / 12) - 1; // 7% annual blended return
-      const PHASE2_START = new Date(2026, 9, 1);  // 1 Oct 2026
-      const PHASE3_START = new Date(2028, 0, 1);  // 1 Jan 2028
+      let spVal = spAnchor, portVal = portAnchor;
+      const monthlyR = Math.pow(1 + plan.annualReturnPct / 100, 1 / 12) - 1;
+      // Resolve which phase a given month label falls in (last phase whose start ≤ label).
+      const phaseFor = label => { let cur = null; for (const ph of plan.phases) { if ((ph.start || '') <= label) cur = ph; } return cur; };
 
       let d = new Date(startDate);
       while (d <= endDate) {
-        const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = _monthLabel(d);
         labels.push(label);
         sparkasse.push(parseFloat(spVal.toFixed(2)));
         portfolio.push(parseFloat(portVal.toFixed(2)));
         total.push(parseFloat((spVal + portVal).toFixed(2)));
 
-        if (d < PHASE2_START) {
-          // Phase 1: save €1,000/mo to Sparkasse, no investing
-          spVal = Math.min(spVal + 1000, TARGET);
-        } else if (d < PHASE3_START) {
-          // Phase 2: Sparkasse holds at €10k; €1,000/mo invested
-          spVal = TARGET;
-          portVal = portVal * (1 + MONTHLY_R) + 1000;
-        } else {
-          // Phase 3: Sparkasse holds at €10k; €1,500/mo invested
-          spVal = TARGET;
-          portVal = portVal * (1 + MONTHLY_R) + 1500;
+        const ph = phaseFor(label);
+        if (ph) {
+          spVal = Math.min(spVal + (ph.sparkasseMonthly || 0), target);
+          portVal = portVal * (1 + monthlyR) + (ph.invest || 0);
         }
         d.setMonth(d.getMonth() + 1);
       }
-      return { labels, sparkasse, portfolio, total };
+      const val = { labels, sparkasse, portfolio, total, anchorMonth, anchorBalance: sparkasse[0], plan };
+      _projCache = { sig, val };
+      return val;
     }
+    function invalidateProjCache() { _projCache = { sig: null, val: null }; }
 
     function renderForecast() {
       const el = document.getElementById('momForecast'); if (!el) return;
@@ -177,21 +223,32 @@
         }, options: chartDefaults()
       });
 
-      const gi = l => series.labels.indexOf(l);
-      const p1End = series.sparkasse[gi('2026-09')] ?? series.sparkasse[series.sparkasse.length - 1] ?? 0;
-      const p2End = series.total[gi('2027-12')] ?? 0;
-      const p3End = series.total[gi('2028-10')] ?? series.total[series.total.length - 1] ?? 0;
-      document.getElementById('projCards').innerHTML = `
-    <div class="card"><div class="card-title">Phase 1 end (Sep 2026)</div><div class="card-value">${fmtEur(p1End)}</div><div class="card-sub">Sparkasse → €10k safety net</div></div>
-    <div class="card"><div class="card-title">Phase 2 end (Dec 2027)</div><div class="card-value">${fmtEur(p2End)}</div><div class="card-sub">€10k Sparkasse + ~€12.4k portfolio</div></div>
-    <div class="card"><div class="card-title">Phase 3 end (Oct 2028)</div><div class="card-value">${fmtEur(p3End)}</div><div class="card-sub">Plan target: ~€41,762 total wealth</div></div>`;
+      // Build a card per phase, showing projected total wealth at the end of each
+      // phase (the month before the next phase starts, or the plan horizon for the
+      // last phase). Fully derived from the configured plan.
+      const phases = series.plan.phases;
+      const valueAtOrBefore = label => { let idx = -1; for (let k = 0; k < series.labels.length; k++) { if (series.labels[k] <= label) idx = k; } return idx; };
+      const prevMonth = label => { const [y, m] = label.split('-').map(Number); const d = new Date(y, m - 2, 1); return _monthLabel(d); };
+      document.getElementById('projCards').innerHTML = phases.map((ph, i) => {
+        const endLabel = i < phases.length - 1 ? prevMonth(phases[i + 1].start) : series.plan.end;
+        const idx = valueAtOrBefore(endLabel);
+        const val = idx >= 0 ? series.total[idx] : 0;
+        const moves = [ph.sparkasseMonthly ? `€${ph.sparkasseMonthly}/mo → Sparkasse` : '', ph.invest ? `€${ph.invest}/mo → invest` : ''].filter(Boolean).join(' · ') || 'Hold';
+        return `<div class="card"><div class="card-title">${esc(ph.name || ('Phase ' + (i + 1)))} (end ${endLabel})</div><div class="card-value">${fmtEur(val)}</div><div class="card-sub">${esc(moves)}</div></div>`;
+      }).join('');
 
       const today = new Date().toISOString().slice(0, 7), pIdx = series.labels.indexOf(today);
       const projSp = pIdx >= 0 ? series.sparkasse[pIdx] : null, actual = S.config.currentSparkasseBalance;
       const avpEl = document.getElementById('avpPanel');
       if (actual != null && projSp != null) {
         const delta = actual - projSp, onTrack = delta >= -500;
-        avpEl.innerHTML = `<div style="margin-bottom:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:3px">Projected for ${today}</div><div style="font-size:22px;font-weight:700">${fmtEur(projSp)}</div></div><div style="margin-bottom:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:3px">Actual balance</div><div style="font-size:22px;font-weight:700;color:var(--green)">${fmtEur(actual)}</div></div><div style="padding:10px;border-radius:7px;background:${onTrack ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)'};border:1px solid ${onTrack ? 'var(--green)' : 'var(--red)'}"><div style="font-weight:600;color:${onTrack ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '+' : ''}${fmtEur(Math.abs(delta))} vs projection</div><div style="font-size:12px;margin-top:5px;color:${onTrack ? 'var(--green)' : 'var(--red)'}">${onTrack ? '✅ On track!' : '⚠️ More than €500 behind — review spending.'}</div></div>`;
+        // Plan only has predictive value once time has elapsed since the anchor month.
+        const noElapsed = series.anchorMonth >= today;
+        const baseline = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Plan anchored to ${fmtEur(series.anchorBalance)} tracked in ${series.anchorMonth}</div>`;
+        const verdict = noElapsed
+          ? `<div style="padding:10px;border-radius:7px;background:rgba(148,163,184,.12);border:1px solid var(--border)"><div style="font-size:12px;color:var(--muted)">⏳ Plan starts this month — check back next month to see if you're on track.</div></div>`
+          : `<div style="padding:10px;border-radius:7px;background:${onTrack ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)'};border:1px solid ${onTrack ? 'var(--green)' : 'var(--red)'}"><div style="font-weight:600;color:${onTrack ? 'var(--green)' : 'var(--red)'}">${delta >= 0 ? '+' : ''}${fmtEur(Math.abs(delta))} vs projection</div><div style="font-size:12px;margin-top:5px;color:${onTrack ? 'var(--green)' : 'var(--red)'}">${onTrack ? '✅ On track!' : '⚠️ More than €500 behind — review spending.'}</div></div>`;
+        avpEl.innerHTML = baseline + `<div style="margin-bottom:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:3px">Projected for ${today}</div><div style="font-size:22px;font-weight:700">${fmtEur(projSp)}</div></div><div style="margin-bottom:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:3px">Actual balance</div><div style="font-size:22px;font-weight:700;color:var(--green)">${fmtEur(actual)}</div></div>` + verdict;
       } else { avpEl.innerHTML = '<div style="color:var(--muted);font-size:13px">Set your Sparkasse balance in Settings to enable tracking.</div>'; }
 
       // Default halal portfolio plan (Scalable Capital) — edit to match your own strategy

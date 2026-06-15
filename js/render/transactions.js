@@ -15,7 +15,7 @@
       const body = document.getElementById('txBody');
       if (!txs.length) { body.innerHTML = ''; document.getElementById('txEmpty').style.display = S.transactions.length === 0 ? 'block' : 'none'; return; }
       document.getElementById('txEmpty').style.display = 'none';
-      const CAT_COLORS = { rent: '#818cf8', food: '#f97316', transport: '#06b6d4', shopping: '#ec4899', subscriptions: '#8b5cf6', remittance: '#f43f5e', insurance: '#14b8a6', installments: '#a855f7', health: '#10b981', income: '#22c55e', investment: '#3b82f6', entertainment: '#f59e0b', other: '#94a3b8' };
+      const CAT_COLORS = { rent: '#818cf8', food: '#f97316', transport: '#06b6d4', shopping: '#ec4899', subscriptions: '#8b5cf6', remittance: '#f43f5e', insurance: '#14b8a6', installments: '#a855f7', health: '#10b981', income: '#22c55e', investment: '#3b82f6', entertainment: '#f59e0b', transfer: '#64748b', other: '#94a3b8' };
       body.innerHTML = txs.map(t => `
     <tr>
       <td style="white-space:nowrap">${t.date}</td>
@@ -65,10 +65,20 @@
       rebuildSnapshots(); closeModal('reclassifyModal'); showToast('✅ Categories updated'); if (activeTab === 'transactions') renderTx();
     }
 
+    // RFC-4180 field quoting + spreadsheet formula-injection guard. A field that
+    // starts with = + - @ (or a tab/CR) is prefixed with a single quote so apps like
+    // Excel/Sheets treat it as text instead of executing it as a formula.
+    function csvCell(v) {
+      let s = String(v ?? '');
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
     function exportCSV() {
       const rows = [['Date', 'Description', 'Type', 'Category', 'Amount']];
-      S.transactions.forEach(t => rows.push([t.date, `"${t.description}"`, t.type, t.category, t.amount]));
-      const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+      S.transactions.forEach(t => rows.push([t.date, t.description, t.type, t.category, t.amount]));
+      const csv = rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'transactions.csv'; a.click();
     }
 

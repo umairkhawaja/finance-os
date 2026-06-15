@@ -21,7 +21,10 @@
       } catch (e) { hideLoading(); showToast(`❌ Import failed: ${e.message}`); }
     }
     async function clearAllData() {
-      if (!confirm('⚠️ Delete ALL data? Cannot be undone.')) return;
+      if (!confirm('⚠️ Delete ALL data?\n\nA backup snapshot will be downloaded first so you can re-import it if this was a mistake.')) return;
+      // Safety net: auto-download a full snapshot before wiping, giving an undo path
+      // (re-import the file) for an otherwise irreversible action.
+      try { if (S.transactions.length || S.portfolioEntries.length || S.balanceHistory.length) exportSnapshot(); } catch (e) { }
       await dbClear('transactions'); await dbClear('portfolioEntries'); await dbClear('balanceHistory');
       S.transactions = []; S.portfolioEntries = []; S.balanceHistory = []; S.loggedMonths = new Set();
       rebuildSnapshots(); rebuildAll(); showToast('🗑️ All data cleared');

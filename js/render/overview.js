@@ -7,7 +7,7 @@
       const spark = S.config.currentSparkasseBalance, port = latestPortfolioValue(), net = (spark || 0) + port, target = S.config.sparkasseTarget || 10000;
       document.getElementById('ov-sparkasse').textContent = spark != null ? fmtEur(spark) : '—';
       document.getElementById('ov-portfolio').textContent = fmtEur(port);
-      document.getElementById('ov-networth').textContent = fmtEur(net);
+      document.getElementById('ov-networth').textContent = fmtEurSigned(net);
       if (spark != null) { const pct = Math.round((spark / target) * 100); document.getElementById('ov-spark-sub').textContent = `${pct}% of €${target.toLocaleString('de-DE')} target`; document.getElementById('celebBanner').style.display = pct >= 90 ? 'block' : 'none'; }
       const flags = computeRiskFlags(), score = computeHealthScore(flags);
       const el = document.getElementById('ov-health'); el.textContent = score; el.style.color = score >= 80 ? 'var(--green)' : score >= 60 ? 'var(--yellow)' : 'var(--red)';
@@ -16,10 +16,10 @@
     }
 
     function drawSparkline() {
-      const cv = document.getElementById('sparklineCanvas'), ctx = cv.getContext('2d'), history = S.balanceHistory.slice(-12);
-      if (history.length < 2) { ctx.clearRect(0, 0, cv.width, cv.height); return; }
+      const cv = document.getElementById('sparklineCanvas'), { ctx, w, h } = hidpiCtx(cv), history = S.balanceHistory.slice(-12);
+      if (history.length < 2) { ctx.clearRect(0, 0, w, h); return; }
       const vals = history.map(h => h.balance), mn = Math.min(...vals), mx = Math.max(...vals), range = mx - mn || 1;
-      const w = cv.width, h = cv.height, p = 3;
+      const p = 3;
       ctx.clearRect(0, 0, w, h); ctx.beginPath(); ctx.strokeStyle = '#6c63ff'; ctx.lineWidth = 2;
       vals.forEach((v, i) => { const x = p + (i / (vals.length - 1)) * (w - p * 2), y = h - p - ((v - mn) / range) * (h - p * 2); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
       ctx.stroke();
